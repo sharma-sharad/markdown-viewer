@@ -1,6 +1,6 @@
 # Markdown Viewer
 
-A Windows-friendly Markdown reader and HTML exporter built with Python, Tkinter, and ttkbootstrap. It opens Markdown files, lets you edit and save them, and previews rendered HTML (including Mermaid diagrams) in your default browser.
+A Windows-friendly Markdown reader and HTML exporter built with Python, Tkinter, and ttkbootstrap. Opened files render in the document pane, where you can switch to source editing. Browser preview supports Mermaid diagrams and full HTML styling.
 
 ## Run from source
 
@@ -12,7 +12,7 @@ A Windows-friendly Markdown reader and HTML exporter built with Python, Tkinter,
    py app.py
    ```
 
-The first time a preview is opened, Mermaid.js is loaded from jsDelivr, so an internet connection is needed to render Mermaid diagrams. Standard Markdown rendering and exported HTML otherwise work offline.
+The first time a browser preview is opened, Mermaid.js is loaded from jsDelivr, so an internet connection is needed to render Mermaid diagrams. Standard Markdown rendering in the app and exported HTML otherwise work offline.
 
 ## Build a Windows executable
 

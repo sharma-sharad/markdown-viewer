@@ -8,6 +8,7 @@ import struct
 import sys
 import tempfile
 import webbrowser
+from html.parser import HTMLParser
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -22,8 +23,8 @@ APP_NAME = "Markdown Viewer"
 MERMAID_SCRIPT = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
 
 
-def markdown_to_html(source: str, title: str = "Markdown Viewer") -> str:
-    """Convert Markdown to a self-contained themed HTML page (Mermaid uses CDN)."""
+def markdown_body(source: str) -> str:
+    """Return rendered Markdown body HTML."""
     try:
         import markdown
     except ImportError as exc:
@@ -32,12 +33,93 @@ def markdown_to_html(source: str, title: str = "Markdown Viewer") -> str:
             "'python -m pip install -r requirements.txt', then restart Markdown Viewer."
         ) from exc
     body = markdown.markdown(source, extensions=["extra", "sane_lists", "toc", "fenced_code"])
-    body = re.sub(r"<pre><code class=\"language-mermaid\">(.*?)</code></pre>",
+    return re.sub(r"<pre><code class=\"language-mermaid\">(.*?)</code></pre>",
                   lambda m: '<pre class="mermaid">' + m.group(1) + '</pre>', body, flags=re.S)
+
+
+def markdown_to_html(source: str, title: str = "Markdown Viewer") -> str:
+    """Convert Markdown to a self-contained themed HTML page (Mermaid uses CDN)."""
+    body = markdown_body(source)
     safe_title = html.escape(title)
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{safe_title}</title><script src="{MERMAID_SCRIPT}"></script><script>mermaid.initialize({{startOnLoad:true,theme:'neutral',securityLevel:'strict'}});</script>
 <style>*{{box-sizing:border-box}}body{{margin:0;background:#f5f7fb;color:#202b3c;font:16px/1.7 'Segoe UI',Arial,sans-serif}}main{{max-width:980px;margin:42px auto;padding:42px 56px;background:white;border:1px solid #e2e8f0;border-radius:18px;box-shadow:0 12px 38px #13274412}}h1,h2,h3{{line-height:1.25;color:#182942;margin-top:1.7em}}h1{{margin-top:0;font-size:2.3em}}a{{color:#4263eb}}blockquote{{border-left:4px solid #748ffc;margin:1em 0;padding:.4em 1em;color:#596579;background:#f8f9ff}}pre{{overflow:auto;background:#101828;color:#e5edf8;padding:18px;border-radius:10px}}code{{font-family:Consolas,monospace}}:not(pre)>code{{background:#eef2f7;padding:2px 5px;border-radius:4px}}table{{border-collapse:collapse;width:100%}}th,td{{text-align:left;border:1px solid #dce3ec;padding:9px 12px}}th{{background:#f3f6fa}}img{{max-width:100%}}hr{{border:0;border-top:1px solid #e2e8f0}}.mermaid{{display:flex;justify-content:center;background:#fff;color:#202b3c}}@media(max-width:700px){{main{{margin:12px;padding:24px}}}}</style></head><body><main>{body}</main></body></html>'''
+
+
+class MarkdownTextRenderer(HTMLParser):
+    """Render common Markdown HTML elements with native Tk text styles."""
+    BLOCKS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "table", "tr", "hr"}
+
+    def __init__(self, widget: tk.Text):
+        super().__init__(convert_charrefs=True)
+        self.widget = widget
+        self.tags: list[str] = []
+        self.list_depth = 0
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.tag_configure("h1", font=("Segoe UI", 22, "bold"), foreground="#182942", spacing1=12, spacing3=8)
+        widget.tag_configure("h2", font=("Segoe UI", 17, "bold"), foreground="#182942", spacing1=10, spacing3=6)
+        widget.tag_configure("h3", font=("Segoe UI", 14, "bold"), foreground="#263c5a", spacing1=8, spacing3=4)
+        widget.tag_configure("strong", font=("Segoe UI", 11, "bold"))
+        widget.tag_configure("em", font=("Segoe UI", 11, "italic"))
+        widget.tag_configure("code", font=("Cascadia Code", 10), background="#eef2f7", foreground="#334155")
+        widget.tag_configure("pre", font=("Cascadia Code", 10), background="#101828", foreground="#e5edf8", lmargin1=12, lmargin2=12, rmargin=12, spacing1=7, spacing3=7)
+        widget.tag_configure("blockquote", foreground="#596579", lmargin1=18, lmargin2=18)
+        widget.tag_configure("link", foreground="#4263eb", underline=True)
+        widget.tag_configure("mermaidlabel", foreground="#4263eb", font=("Segoe UI", 9, "bold"), spacing1=8)
+
+    def _newline(self, count: int = 1):
+        value = self.widget.get("1.0", "end-1c")
+        existing = len(value) - len(value.rstrip("\n"))
+        if existing < count:
+            self.widget.insert("end", "\n" * (count - existing))
+
+    def handle_starttag(self, tag: str, attrs):
+        attr = dict(attrs)
+        if tag in self.BLOCKS:
+            self._newline(1)
+        if tag in {"h1", "h2", "h3"}:
+            self.tags.append(tag)
+        elif tag in {"strong", "b"}:
+            self.tags.append("strong")
+        elif tag in {"em", "i"}:
+            self.tags.append("em")
+        elif tag == "code":
+            self.tags.append("code")
+        elif tag == "pre":
+            self.tags.append("pre")
+            if "mermaid" in attr.get("class", ""):
+                self.widget.insert("end", "Mermaid flowchart — open browser preview to see the diagram\n", ("mermaidlabel",))
+        elif tag == "blockquote":
+            self.tags.append("blockquote")
+        elif tag == "a":
+            self.tags.append("link")
+        elif tag == "li":
+            self._newline(1)
+            self.widget.insert("end", "•  ")
+        elif tag == "td" and self.widget.get("1.0", "end-1c").split("\n")[-1]:
+            self.widget.insert("end", "    |    ")
+        elif tag == "hr":
+            self.widget.insert("end", "────────────────────────────────────────\n", ("blockquote",))
+
+    def handle_endtag(self, tag: str):
+        pairs = {"h1": "h1", "h2": "h2", "h3": "h3", "strong": "strong", "b": "strong", "em": "em", "i": "em", "code": "code", "pre": "pre", "blockquote": "blockquote", "a": "link"}
+        if tag in pairs:
+            name = pairs[tag]
+            if name in self.tags:
+                self.tags.reverse(); self.tags.remove(name); self.tags.reverse()
+        if tag in {"p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote", "tr"}:
+            self._newline(2 if tag in {"p", "pre", "blockquote"} else 1)
+
+    def handle_data(self, data: str):
+        if data:
+            self.widget.insert("end", data, tuple(self.tags))
+            if self.tags and self.tags[-1] == "pre" and data.endswith("\n"):
+                self.tags = self.tags
+
+    def finish(self):
+        self.feed("")
+        self.widget.configure(state="disabled")
 
 
 class MarkdownViewer:
@@ -94,28 +176,44 @@ class MarkdownViewer:
         panes.pack(fill="both", expand=True, padx=22, pady=(0, 15))
         left = ttk.Frame(panes); right = ttk.Frame(panes)
         panes.add(left, weight=1); panes.add(right, weight=1)
-        for panel, title, subtitle in ((left, "MARKDOWN", "Source text"), (right, "PREVIEW", "Rendered in your browser")):
-            heading = ttk.Frame(panel); heading.pack(fill="x", pady=(0, 9))
-            ttk.Label(heading, text=title, style="PanelTitle.TLabel").pack(side="left")
-            ttk.Label(heading, text=subtitle, foreground="#8792a2", font=("Segoe UI", 9)).pack(side="right")
-        editorbox = ttk.Frame(left); editorbox.pack(fill="both", expand=True)
-        self.editor = tk.Text(editorbox, wrap="word", undo=True, font=("Cascadia Code", 11), padx=16, pady=14,
+        self.document_mode = "rendered"
+        heading = ttk.Frame(left); heading.pack(fill="x", pady=(0, 9))
+        self.document_title = ttk.Label(heading, text="MARKDOWN PREVIEW", style="PanelTitle.TLabel")
+        self.document_title.pack(side="left")
+        self.mode_button = ttk.Button(heading, text="Edit source", bootstyle="secondary-outline", command=self.toggle_source)
+        self.mode_button.pack(side="right")
+        right_heading = ttk.Frame(right); right_heading.pack(fill="x", pady=(0, 9))
+        ttk.Label(right_heading, text="BROWSER PREVIEW", style="PanelTitle.TLabel").pack(side="left")
+        ttk.Label(right_heading, text="Mermaid diagrams", foreground="#8792a2", font=("Segoe UI", 9)).pack(side="right")
+
+        self.source_box = ttk.Frame(left)
+        self.source_box.pack(fill="both", expand=True)
+        self.editor = tk.Text(self.source_box, wrap="word", undo=True, font=("Cascadia Code", 11), padx=16, pady=14,
                               bg="#ffffff", fg="#27364b", insertbackground="#4263eb", relief="flat",
                               highlightthickness=1, highlightbackground="#dfe5ee", highlightcolor="#748ffc",
                               spacing1=2, spacing3=3)
-        scroll = ttk.Scrollbar(editorbox, command=self.editor.yview); self.editor.configure(yscrollcommand=scroll.set)
+        scroll = ttk.Scrollbar(self.source_box, command=self.editor.yview); self.editor.configure(yscrollcommand=scroll.set)
         self.editor.pack(side="left", fill="both", expand=True); scroll.pack(side="right", fill="y")
+        self.render_box = ttk.Frame(left)
+        self.render_view = tk.Text(self.render_box, wrap="word", font=("Segoe UI", 11), padx=28, pady=22,
+                                   bg="#ffffff", fg="#27364b", relief="flat", highlightthickness=1,
+                                   highlightbackground="#dfe5ee", cursor="arrow", spacing1=2, spacing3=2)
+        render_scroll = ttk.Scrollbar(self.render_box, command=self.render_view.yview)
+        self.render_view.configure(yscrollcommand=render_scroll.set)
+        self.render_view.pack(side="left", fill="both", expand=True)
+        render_scroll.pack(side="right", fill="y")
         card = ttk.Frame(right, padding=22, bootstyle="light"); card.pack(fill="both", expand=True)
-        ttk.Label(card, text="Your preview opens in your default browser", font=("Segoe UI", 13, "bold"), bootstyle="dark").pack(anchor="w", pady=(5, 10))
-        ttk.Label(card, text="Browser preview supports rich Markdown styling and Mermaid diagrams. Export creates a shareable HTML file with the same rendering.",
+        ttk.Label(card, text="View Mermaid diagrams", font=("Segoe UI", 13, "bold"), bootstyle="dark").pack(anchor="w", pady=(5, 10))
+        ttk.Label(card, text="Markdown is rendered in the document pane. Open the browser preview to see Mermaid flowcharts and the full styled HTML view.",
                   wraplength=390, justify="left", foreground="#697586").pack(anchor="w", pady=(0, 18))
-        ttk.Button(card, text="◉  Open preview", bootstyle="primary", command=self.preview).pack(anchor="w")
+        ttk.Button(card, text="◉  Open browser preview", bootstyle="primary", command=self.preview).pack(anchor="w")
         ttk.Separator(card).pack(fill="x", pady=24)
         ttk.Label(card, text="SUPPORTED", font=("Segoe UI", 9, "bold"), foreground="#8792a2").pack(anchor="w", pady=(0, 8))
         ttk.Label(card, text="Headings  ·  Lists  ·  Tables  ·  Code\nLinks  ·  Quotes  ·  Mermaid flowcharts", justify="left", foreground="#526174").pack(anchor="w")
         self.editor.insert("1.0", "# Welcome to Markdown Viewer\n\nOpen a `.md` file or start writing here. Use **Markdown** to format your document.\n\n## Mermaid flowchart\n\n```mermaid\ngraph TD\n    A[Write Markdown] --> B[Preview]\n    B --> C[Export HTML]\n```\n\nChoose **Open preview** to see the rendered document in your browser, or export it as HTML.\n")
         self.editor.edit_modified(False)
         self.editor.bind("<<Modified>>", self._modified)
+        self._show_rendered()
 
     def _modified(self, _event=None):
         if self.editor.edit_modified():
@@ -131,7 +229,8 @@ class MarkdownViewer:
 
     def new_file(self):
         if not self._ask_save(): return
-        self.path = None; self.editor.delete("1.0", "end"); self.dirty = False
+        self.path = None; self.editor.delete("1.0", "end"); self.editor.edit_modified(False); self.dirty = False
+        self._show_source()
         self.file_label.configure(text="Untitled.md"); self.status.configure(text="New document")
 
     def open_file(self):
@@ -142,7 +241,40 @@ class MarkdownViewer:
         except (OSError, UnicodeError) as exc:
             messagebox.showerror(APP_NAME, f"Could not open file:\n{exc}"); return
         self.path = Path(chosen); self.editor.delete("1.0", "end"); self.editor.insert("1.0", source)
-        self.dirty = False; self.file_label.configure(text=self.path.name); self.status.configure(text="Opened successfully")
+        self.editor.edit_modified(False)
+        self.dirty = False; self.file_label.configure(text=self.path.name)
+        self._show_rendered()
+        self.status.configure(text="Opened and rendered")
+
+    def _show_rendered(self) -> bool:
+        try:
+            body = markdown_body(self.editor.get("1.0", "end-1c"))
+        except RuntimeError as exc:
+            messagebox.showerror(APP_NAME, f"Could not render Markdown:\n{exc}")
+            return False
+        renderer = MarkdownTextRenderer(self.render_view)
+        renderer.feed(body)
+        renderer.close()
+        self.render_view.configure(state="disabled")
+        self.source_box.pack_forget()
+        self.render_box.pack(fill="both", expand=True)
+        self.document_mode = "rendered"
+        self.document_title.configure(text="MARKDOWN PREVIEW")
+        self.mode_button.configure(text="Edit source")
+        return True
+
+    def _show_source(self):
+        self.render_box.pack_forget()
+        self.source_box.pack(fill="both", expand=True)
+        self.document_mode = "source"
+        self.document_title.configure(text="MARKDOWN SOURCE")
+        self.mode_button.configure(text="Show rendered view")
+
+    def toggle_source(self):
+        if self.document_mode == "rendered":
+            self._show_source()
+        else:
+            self._show_rendered()
 
     def save_file(self):
         if self.path is None:
