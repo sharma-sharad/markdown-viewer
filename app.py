@@ -26,9 +26,12 @@ def markdown_to_html(source: str, title: str = "Markdown Viewer") -> str:
     """Convert Markdown to a self-contained themed HTML page (Mermaid uses CDN)."""
     try:
         import markdown
-        body = markdown.markdown(source, extensions=["extra", "sane_lists", "toc", "fenced_code"])
-    except ImportError:
-        body = "<pre>" + html.escape(source) + "</pre>"
+    except ImportError as exc:
+        raise RuntimeError(
+            "The Markdown parser is missing. Install the app requirements with "
+            "'python -m pip install -r requirements.txt', then restart Markdown Viewer."
+        ) from exc
+    body = markdown.markdown(source, extensions=["extra", "sane_lists", "toc", "fenced_code"])
     body = re.sub(r"<pre><code class=\"language-mermaid\">(.*?)</code></pre>",
                   lambda m: '<pre class="mermaid">' + m.group(1) + '</pre>', body, flags=re.S)
     safe_title = html.escape(title)
@@ -157,18 +160,24 @@ class MarkdownViewer:
 
     def preview(self):
         try:
+            rendered_html = self._html()
             temp = tempfile.NamedTemporaryFile("w", suffix=".html", prefix="markdown_viewer_", encoding="utf-8", delete=False)
-            with temp: temp.write(self._html())
+            with temp: temp.write(rendered_html)
             self.preview_path = Path(temp.name)
             webbrowser.open(self.preview_path.as_uri())
             self.status.configure(text="Preview opened in browser")
-        except OSError as exc: messagebox.showerror(APP_NAME, f"Could not open preview:\n{exc}")
+        except (OSError, RuntimeError) as exc: messagebox.showerror(APP_NAME, f"Could not render preview:\n{exc}")
 
     def export_html(self):
+        try:
+            rendered_html = self._html()
+        except RuntimeError as exc:
+            messagebox.showerror(APP_NAME, f"Could not render Markdown:\n{exc}")
+            return
         suggested = (self.path.stem if self.path else "document") + ".html"
         chosen = filedialog.asksaveasfilename(title="Export as HTML", initialfile=suggested, defaultextension=".html", filetypes=[("HTML files", "*.html"), ("All files", "*.*")])
         if not chosen: return
-        try: Path(chosen).write_text(self._html(), encoding="utf-8")
+        try: Path(chosen).write_text(rendered_html, encoding="utf-8")
         except OSError as exc: messagebox.showerror(APP_NAME, f"Could not export HTML:\n{exc}"); return
         self.status.configure(text="HTML exported successfully")
         if messagebox.askyesno(APP_NAME, "HTML exported. Open it in your browser now?"):

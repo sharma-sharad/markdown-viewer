@@ -20,7 +20,9 @@ On Windows, install the app dependencies and PyInstaller, then run:
 
 ```powershell
 py -m pip install -r requirements.txt pyinstaller
-py -m PyInstaller --noconfirm --onefile --windowed --name "Markdown Viewer" --icon assets/markdown-viewer.ico --add-data "assets/markdown-viewer.ico;assets" app.py
+py -m PyInstaller --noconfirm --onefile --windowed --name "Markdown Viewer" --icon assets/markdown-viewer.ico --add-data "assets/markdown-viewer.ico;assets" --collect-all markdown app.py
 ```
 
-The executable will be in `dist/Markdown Viewer.exe`. The application also draws its own document icon in the window header.
+The executable will be in `dist/Markdown Viewer.exe`. The `--collect-all markdown` option bundles the parser and its extensions so previews stay rendered in the packaged app. The application also draws its own document icon in the window header.
+
+If previewing or exporting reports that the Markdown parser is missing, install dependencies again with `py -m pip install -r requirements.txt`.
