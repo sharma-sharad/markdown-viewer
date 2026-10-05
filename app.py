@@ -176,11 +176,11 @@ class MarkdownViewer:
         panes.pack(fill="both", expand=True, padx=22, pady=(0, 15))
         left = ttk.Frame(panes); right = ttk.Frame(panes)
         panes.add(left, weight=1); panes.add(right, weight=1)
-        self.document_mode = "rendered"
+        self.document_mode = "source"
         heading = ttk.Frame(left); heading.pack(fill="x", pady=(0, 9))
-        self.document_title = ttk.Label(heading, text="MARKDOWN PREVIEW", style="PanelTitle.TLabel")
+        self.document_title = ttk.Label(heading, text="MARKDOWN SOURCE", style="PanelTitle.TLabel")
         self.document_title.pack(side="left")
-        self.mode_button = ttk.Button(heading, text="Edit source", bootstyle="secondary-outline", command=self.toggle_source)
+        self.mode_button = ttk.Button(heading, text="Show rendered view", bootstyle="secondary-outline", command=self.toggle_source)
         self.mode_button.pack(side="right")
         right_heading = ttk.Frame(right); right_heading.pack(fill="x", pady=(0, 9))
         ttk.Label(right_heading, text="BROWSER PREVIEW", style="PanelTitle.TLabel").pack(side="left")
@@ -243,8 +243,8 @@ class MarkdownViewer:
         self.path = Path(chosen); self.editor.delete("1.0", "end"); self.editor.insert("1.0", source)
         self.editor.edit_modified(False)
         self.dirty = False; self.file_label.configure(text=self.path.name)
-        self._show_rendered()
-        self.status.configure(text="Opened and rendered")
+        rendered = self._show_rendered()
+        self.status.configure(text="Opened and rendered" if rendered else "Opened in source view")
 
     def _show_rendered(self) -> bool:
         try:
